@@ -1,22 +1,31 @@
 ﻿using Business.Abstract;
 using Business.Constants;
+using Business.ValidationRules.FluentValidation;
+using Core.Aspect.Autofac.Validation;
+using Core.CrossCuttingConcerns.Validation;
 using Core.Utilities.Results;
 using DataAccess.Abstract;
 using Entities.Concrete;
 using Entities.DTOs;
+using FluentValidation;
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Text;
+using Core.Utilities.Business;
+using Business.BusinessAspect.Autofac;
 
 namespace Business.Concrete
 {
     public class ProductManager : IProductService
     {
         IProductDal _productDal;
+        ICategoryService _categoryService;
 
-        public ProductManager(IProductDal productDal)
+        public ProductManager(IProductDal productDal, ICategoryService categoryService)
         {
             _productDal = productDal;
+            _categoryService = categoryService;
         } 
 
         public IDataResult<List<Product>> GetAllByCategoryId(int categoryId)
@@ -34,15 +43,31 @@ namespace Business.Concrete
             return new SuccessDataResult<List<Product>>( _productDal.GetAll(p => p.UnitPrice >= min && p.UnitPrice <= max));
         }
 
+        //Claim
+        //JWT (JSON WEB TOKEN)      Yetkilendirme(Authorization)  
+        // Encryption ,hashing => Bir datayı karşı taraf okuyamasın diye
+        //Salting => Kulanıcının girdiği parolayı güçlendirmek 
+        //Decryption => Şifre çözme
+        [SecuredOperation("product.add,admin")]     //Yetkilendirme
+        [ValidationAspect(typeof(ProductValidator))]        //Attribute'lara tip ataması typeof ile yapılır.
         public IResult Add(Product product)
         {
             //magic string = Stringleri direkt olarak ayrı ayrı yazmak --- yanlış kullanımdır
-            if (product.ProductName.Length <= 2)
+            //business codes   --       İş ihtiyaçlarına uygunluk
+            //validation  ---  Doğrulama  ---  Nesnenin yapısal uyumunu doğrular
+
+            
+
+            IResult result = BusinessRules.Run(CheckIfProductNameExists(product.ProductName),
+                CheckIfProductCountOfCategoryCorrect(product.CategoryId),
+                CheckIfCategoryLimitExceded());
+            if (result != null)
             {
-                return new ErrorResult(Messages.ProductName);
+                return result;
             }
             _productDal.Add(product);
             return new SuccessResult(Messages.ProductAdded);
+           
         }
 
         public IDataResult<List<Product>> GetAll()
@@ -61,6 +86,42 @@ namespace Business.Concrete
                 return new ErrorDataResult<List<ProductDetailDto>>(Messages.MaintenanceTime);        //MaintenanceTime : Bakım zamanı
             }
             return new SuccessDataResult<List<ProductDetailDto>>(_productDal.GetProductDetails());
+        }
+
+        public IResult Update(Product product)
+        {            
+            _productDal.Update(product);
+            return new SuccessResult(Messages.ProductUpdated);
+        }
+
+        private IResult CheckIfProductCountOfCategoryCorrect(int categoryId)
+        {
+            var result = _productDal.GetAll(p => p.CategoryId ==categoryId).Count;
+            if (result >= 10)
+            {
+                return new ErrorResult(Messages.ProductCountOfCategoryError);
+            }
+            return new SuccessResult();
+        }
+
+        private IResult CheckIfProductNameExists(string productName)
+        {
+            var result = _productDal.GetAll(p => p.ProductName == productName).Any();
+            if (result)
+            {
+                return new ErrorResult(Messages.ProductNameAlreadyExist);
+            }
+            return new  SuccessResult();
+        }
+
+        private IResult CheckIfCategoryLimitExceded()
+        {
+            var result = _categoryService.GetAll();
+            if (result.Data.Count > 15)
+            {
+                return new ErrorResult(Messages.CategoryLimitExceded);
+            }
+            return new SuccessResult();
         }
     }
 }
