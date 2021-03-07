@@ -14,6 +14,8 @@ using System.Collections.Generic;
 using System.Text;
 using Core.Utilities.Business;
 using Business.BusinessAspect.Autofac;
+using Core.Aspect.Autofac.Cashing;
+using Core.Aspect.Autofac.Transaction;
 
 namespace Business.Concrete
 {
@@ -33,6 +35,7 @@ namespace Business.Concrete
             return new SuccessDataResult<List<Product>>(_productDal.GetAll(p=>p.CategoryId== categoryId));
         }
 
+        [CacheAspect]
         public IDataResult<Product> GetById(int productId)
         {
             return new SuccessDataResult<Product>(_productDal.Get(p => p.ProductId == productId));
@@ -48,8 +51,10 @@ namespace Business.Concrete
         // Encryption ,hashing => Bir datayı karşı taraf okuyamasın diye
         //Salting => Kulanıcının girdiği parolayı güçlendirmek 
         //Decryption => Şifre çözme
+        
         [SecuredOperation("product.add,admin")]     //Yetkilendirme
         [ValidationAspect(typeof(ProductValidator))]        //Attribute'lara tip ataması typeof ile yapılır.
+        [CacheRemoveAspect("IProductService.Get")]
         public IResult Add(Product product)
         {
             //magic string = Stringleri direkt olarak ayrı ayrı yazmak --- yanlış kullanımdır
@@ -69,7 +74,7 @@ namespace Business.Concrete
             return new SuccessResult(Messages.ProductAdded);
            
         }
-
+        [CacheAspect]       //key value
         public IDataResult<List<Product>> GetAll()
         {
             if (DateTime.Now.Hour == 16)
@@ -88,6 +93,7 @@ namespace Business.Concrete
             return new SuccessDataResult<List<ProductDetailDto>>(_productDal.GetProductDetails());
         }
 
+        [CacheRemoveAspect("IProductService.Get")]
         public IResult Update(Product product)
         {            
             _productDal.Update(product);
@@ -122,6 +128,18 @@ namespace Business.Concrete
                 return new ErrorResult(Messages.CategoryLimitExceded);
             }
             return new SuccessResult();
+        }
+
+        [TransactionScopeAspect]
+        public IResult AddTransactionalTest(Product product)
+        {
+            Add(product);
+            if (product.UnitPrice < 10)
+            {
+                throw new Exception("");
+            }
+            Add(product);
+            return null;
         }
     }
 }
